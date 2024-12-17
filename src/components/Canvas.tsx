@@ -1,17 +1,12 @@
 import { useLayoutEffect, useState } from "react";
 import { Element, ElementType, SelectedElement } from "../models/Element";
 import useDrawing from "../context/DrawingContext";
-import { elementTypeToTool, isWithinElement } from "../utils/utils";
+import { elementTypeToTool, getElementOnPosition, cursorForPosition } from "../utils/utils";
 import rough from "roughjs";
 import { Drawable } from "roughjs/bin/core";
 import { Action, Tool } from "../models/Action";
 
 const generator = rough.generator();
-
-function getElementOnPosition(x: number, y: number, elements: Element[]) {
-    return elements.find(element => isWithinElement(x, y, element));
-}
-
 
 const Canvas = () => {
     const [elements, setElements] = useState<Element[]>([]);
@@ -66,12 +61,32 @@ const Canvas = () => {
     }
 
     const updateElement = (id: number, x1: number, y1: number, x2: number, y2: number) => {
-        
+
         const updatedElement = createElement(id, x1, y1, x2, y2, elementTypeToTool(elements[id].type), elements[id].color);
         console.log(id, elements[id].color);
         const elementsCopy = [...elements];
         elementsCopy[id] = updatedElement;
         setElements(elementsCopy);
+    }
+
+    const adjustElementsCoordinates = (element: Element) => {
+        const { x1, y1, x2, y2 } = element;
+        switch (element.type) {
+            case ElementType.Line:
+                if (x1 < x2 || (x1 === x2 && y1 < y2)) {
+                    return { x1, y1, x2, y2 };
+                } else {
+                    return { x1: x2, y1: y2, x2: x1, y2: y1 };
+                }
+            case ElementType.Rectangle:
+                const minX = Math.min(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxX = Math.max(x1, x2);
+                const maxY = Math.max(y1, y2);
+                return { x1: minX, y1: minY, x2: maxX, y2: maxY };
+            default:
+                return { x1, y1, x2, y2 };
+        }
     }
 
     const handleMouseDown = (event: React.MouseEvent) => {
@@ -101,19 +116,32 @@ const Canvas = () => {
 
             updateElement(index, elements[index].x1, elements[index].y1, clientX, clientY);
         } else if (drawingContext.action === Action.Selection) {
-            (event.target as HTMLElement).style.cursor = "move";
+            if (drawingContext.tool === Tool.Move) {
+                //ezt a draw & action cuccot refactorálni kell
+                const element = getElementOnPosition(clientX, clientY, elements);
+                (event.target as HTMLElement).style.cursor = element 
+                    ? cursorForPosition(element.position) 
+                    : "default";
 
-            const { id, x1, y1, x2, y2, offsetX, offsetY } = selectedElement!;
-            const width = x2 - x1;
-            const height = y2 - y1;
-            const nextX = clientX - offsetX;
-            const nextY = clientY - offsetY
+                const { id, x1, y1, x2, y2, offsetX, offsetY } = selectedElement!;
+                const width = x2 - x1;
+                const height = y2 - y1;
+                const nextX = clientX - offsetX;
+                const nextY = clientY - offsetY
 
-            updateElement(id, nextX, nextY, nextX + width, nextY + height);
+                updateElement(id, nextX, nextY, nextX + width, nextY + height);
+            }
         }
     };
 
     const handleMouseUp = (event: React.MouseEvent) => {
+        const index = elements.length - 1;
+        const id = elements[index].id;
+        if (drawingContext.action === Action.Draw) {
+            const { x1, y1, x2, y2 } = adjustElementsCoordinates(elements[id]);
+            updateElement(id, x1, y1, x2, y2);
+        }
+
         (event.target as HTMLElement).style.cursor = "default";
         drawingContext.setAction(Action.None);
         setSelectedElement(null);

@@ -16,21 +16,51 @@ export const elementTypeToTool = (type: ElementType) => {
     }
 }
 
-export function isWithinElement(x: number, y: number, element: Element) {
+function positionWithinElement(x: number, y: number, element: Element) {
+    const { x1, y1, x2, y2 } = element;
     switch (element.type) {
         case ElementType.Line:
-            const a = { x: element.x1, y: element.y1 };
-            const b = { x: element.x2, y: element.y2 };
+            const a = { x: x1, y: y1 };
+            const b = { x: x2, y: y2 };
             const c = { x, y };
             const offset = distance(a, c) + distance(b, c) - distance(a, b);
-            return Math.abs(offset) < 1;
+            const start = nearPoint(x, y, x1, y1, "start");
+            const end = nearPoint(x, y, x2, y2, "end");
+            const insideLine =  Math.abs(offset) < 1  ? "inside" : null;
+            return start || end || insideLine;
         case ElementType.Rectangle:
-            const minX = Math.min(element.x1, element.x2);
-            const maxX = Math.max(element.x1, element.x2);
-            const minY = Math.min(element.y1, element.y2);
-            const maxY = Math.max(element.y1, element.y2);
-            return x >= minX && x <= maxX && y >= minY && y <= maxY;
+            const topLeft = nearPoint(x, y, x1, y1, "tl");
+            const topRight = nearPoint(x, y, x2, y1, "tr");
+            const bottomLeft = nearPoint(x, y, x1, y2, "bl");
+            const bottomRight = nearPoint(x, y, x2, y2, "br");
+            let inside =  x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
+            return topLeft || topRight || bottomLeft || bottomRight || inside;
         default:
-            return false;
+            return null;
     }
 }
+
+function nearPoint(mx: number, my: number, px: number, py: number, position: string) {
+    return Math.abs(mx - px) < 5 && Math.abs(my - py) < 5 ? position : null;
+}
+
+export function getElementOnPosition(x: number, y: number, elements: Element[]) {
+    return elements
+    .map(element => ({ ...element, position: positionWithinElement(x, y, element) }))
+    .find(element => element.position !== null);
+}
+
+export function cursorForPosition(position: string | null) {
+    switch (position) {
+        case "tl":
+        case "br":
+        case "start":
+        case "end":
+            return "nwse-resize";
+        case "tr":
+        case "bl":
+            return "nesw-resize";
+        default:
+            return "move";
+    }
+} 

@@ -8,7 +8,8 @@ export type Element = {
   y2: number; 
   type: ElementType; 
   color: string;
-  roughElement: Drawable 
+  roughElement: Drawable;
+  position: string | null;
 };
 
 export enum ElementType {

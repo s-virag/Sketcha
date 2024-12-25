@@ -12,7 +12,7 @@ export const elementTypeToTool = (type: ElementType) => {
         case ElementType.Rectangle:
             return Tool.Rectangle;
         default:
-            return Tool.Move;
+            return Tool.Selection;
     }
 }
 
@@ -64,3 +64,26 @@ export function cursorForPosition(position: string | null) {
             return "move";
     }
 } 
+
+export function resizedCoordinates(clientX: number, clientY: number, element: Element ){
+    switch(element.position) {
+        case "tl":
+            return { x1: clientX, y1: clientY, x2: element.x2, y2: element.y2 };
+        case "tr":
+            return { x1: element.x1, y1: clientY, x2: clientX, y2: element.y2 };
+        case "bl":
+            return { x1: clientX, y1: element.y1, x2: element.x2, y2: clientY };
+        case "br":
+            return { x1: element.x1, y1: element.y1, x2: clientX, y2: clientY };
+        case "start":
+            return { x1: clientX, y1: clientY, x2: element.x2, y2: element.y2 };
+        case "end":
+            return { x1: element.x1, y1: element.y1, x2: clientX, y2: clientY };
+        default:
+            return { x1: element.x1, y1: element.y1, x2: element.x2, y2: element.y2 }; //or null
+    }
+}
+
+export function getMouseCoordinates(event: React.MouseEvent, panOffset: { x: number, y: number }) {
+    return { clientX: event.clientX - panOffset.x, clientY: event.clientY - panOffset.y };
+}

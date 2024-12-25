@@ -1,11 +1,13 @@
 export enum Action {
     None = "none",
-    Selection = "selection",
-    Draw = "draw"
+    Move = "move",
+    Draw = "draw",
+    Resize = "resize",
+    Pan = "pan"
 }
 
 export enum Tool {
-    Move = "move",
+    Selection = "selection",
     Line = "line",
-    Rectangle = "rectangle"
+    Rectangle = "rectangle",
 }

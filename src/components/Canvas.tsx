@@ -1,28 +1,33 @@
 import { useLayoutEffect, useState } from "react";
 import { Element, ElementType, SelectedElement } from "../models/Element";
 import useDrawing from "../context/DrawingContext";
-import { elementTypeToTool, getElementOnPosition, cursorForPosition } from "../utils/utils";
+import { elementTypeToTool, getElementOnPosition, cursorForPosition, resizedCoordinates, getMouseCoordinates } from "../utils/utils";
 import rough from "roughjs";
 import { Drawable } from "roughjs/bin/core";
 import { Action, Tool } from "../models/Action";
 
 const generator = rough.generator();
 
-const Canvas = () => {
-    const [elements, setElements] = useState<Element[]>([]);
+const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: Element[], setElements: (action: any, overwrite?: boolean) => void, panOffset: { x: number, y: number }, setPanOffset: (offset: { x: number, y: number }) => void }) => {
     const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
     const drawingContext = useDrawing();
+    const [startPanMousePosition, setStartPanMousePosition] = useState({ x: 0, y: 0 });
 
     useLayoutEffect(() => {
         const canvas = document.getElementById("canvas") as HTMLCanvasElement;
         const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+        const rc = rough.canvas(canvas);
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const rc = rough.canvas(canvas);
+        ctx.save();
+        ctx.translate(panOffset.x, panOffset.y);
+
         elements.forEach(({ roughElement }) => {
             rc.draw(roughElement);
         });
-    }, [elements]);
+        ctx.restore();
+    }, [elements, drawingContext.action, selectedElement, panOffset]);
 
     function createElement(id: number, x1: number, y1: number, x2: number, y2: number, tool: Tool, color: string): Element {
         let roughElement: Drawable;
@@ -43,10 +48,9 @@ const Canvas = () => {
                 });
                 type = ElementType.Line;
                 break;
-            case Tool.Move:
+            case Tool.Selection:
             default:
-                roughElement = generator.line(x1, y1, x2, y2);
-                break;
+                throw new Error("Invalid tool");
         }
         return {
             id,
@@ -57,6 +61,7 @@ const Canvas = () => {
             type,
             color,
             roughElement,
+            position: null
         };
     }
 
@@ -66,7 +71,7 @@ const Canvas = () => {
         console.log(id, elements[id].color);
         const elementsCopy = [...elements];
         elementsCopy[id] = updatedElement;
-        setElements(elementsCopy);
+        setElements(elementsCopy, true);
     }
 
     const adjustElementsCoordinates = (element: Element) => {
@@ -90,54 +95,89 @@ const Canvas = () => {
     }
 
     const handleMouseDown = (event: React.MouseEvent) => {
-        const { clientX, clientY } = event;
+        const { clientX, clientY } = getMouseCoordinates(event, panOffset);
 
-        if (drawingContext.tool === Tool.Move) {
+        if (event.button === 1 || drawingContext.pressedKeys.has(" ")) {
+            drawingContext.setAction(Action.Pan);
+            setStartPanMousePosition({ x: clientX, y: clientY });
+            return;
+        }
+
+
+        if (drawingContext.tool === Tool.Selection) {
             const element = getElementOnPosition(clientX, clientY, elements);
             if (element) {
                 const offsetX = clientX - element.x1;
                 const offsetY = clientY - element.y1;
                 setSelectedElement({ ...element, offsetX, offsetY });
-                drawingContext.setAction(Action.Selection);
+                setElements((prevState: any) => prevState);
+
+                if (element.position === "inside") {
+                    drawingContext.setAction(Action.Move);
+                } else {
+                    drawingContext.setAction(Action.Resize);
+                }
             }
         } else {
             const id = elements.length;
             const element = createElement(id, clientX, clientY, clientX, clientY, drawingContext.tool, drawingContext.color);
-            setElements(prevState => [...prevState, element]);
+            setElements((prevState: any) => [...prevState, element]);
+            setSelectedElement({ ...element, offsetX: 0, offsetY: 0 });
 
             drawingContext.setAction(Action.Draw);
         }
     };
 
     const handleMouseMove = (event: React.MouseEvent) => {
-        const { clientX, clientY } = event;
+        const { clientX, clientY } = getMouseCoordinates(event, panOffset);
+
+        if (drawingContext.action === Action.Pan) {
+            const deltaX = clientX - startPanMousePosition.x;
+            const deltaY = clientY - startPanMousePosition.y;
+            setPanOffset({
+                x: panOffset.x + deltaX,
+                y: panOffset.y + deltaY,
+            });
+            return;
+        }
+
+        if (drawingContext.tool === Tool.Selection) {
+            //ezt a draw & action cuccot refactorálni kell
+            const element = getElementOnPosition(clientX, clientY, elements);
+            (event.target as HTMLElement).style.cursor = element
+                ? cursorForPosition(element.position)
+                : "default";
+        }
+
         if (drawingContext.action === Action.Draw) {
             const index = elements.length - 1;
 
             updateElement(index, elements[index].x1, elements[index].y1, clientX, clientY);
-        } else if (drawingContext.action === Action.Selection) {
-            if (drawingContext.tool === Tool.Move) {
-                //ezt a draw & action cuccot refactorálni kell
-                const element = getElementOnPosition(clientX, clientY, elements);
-                (event.target as HTMLElement).style.cursor = element 
-                    ? cursorForPosition(element.position) 
-                    : "default";
+        }
+        if (drawingContext.action === Action.Move) {
+            const { id, x1, y1, x2, y2, offsetX, offsetY } = selectedElement!;
+            const width = x2 - x1;
+            const height = y2 - y1;
+            const nextX = clientX - offsetX;
+            const nextY = clientY - offsetY
 
-                const { id, x1, y1, x2, y2, offsetX, offsetY } = selectedElement!;
-                const width = x2 - x1;
-                const height = y2 - y1;
-                const nextX = clientX - offsetX;
-                const nextY = clientY - offsetY
-
-                updateElement(id, nextX, nextY, nextX + width, nextY + height);
-            }
+            updateElement(id, nextX, nextY, nextX + width, nextY + height);
+        }
+        if (drawingContext.action === Action.Resize) {
+            //const { id, type, position, ...coordinates } = selectedElement!;
+            const { x1, y1, x2, y2 } = resizedCoordinates(clientX, clientY, selectedElement!);
+            updateElement(selectedElement!.id, x1, y1, x2, y2);
         }
     };
 
     const handleMouseUp = (event: React.MouseEvent) => {
-        const index = elements.length - 1;
+        if (drawingContext.action === Action.Pan) {
+            drawingContext.setAction(Action.None);
+            return;
+        }
+        const index = selectedElement!.id;
         const id = elements[index].id;
-        if (drawingContext.action === Action.Draw) {
+        if (drawingContext.action === Action.Draw || drawingContext.action === Action.Resize) {
             const { x1, y1, x2, y2 } = adjustElementsCoordinates(elements[id]);
             updateElement(id, x1, y1, x2, y2);
         }
@@ -155,6 +195,7 @@ const Canvas = () => {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            className="absolute top-0 left-0 -z-10"
         >
             Canvas
         </canvas>

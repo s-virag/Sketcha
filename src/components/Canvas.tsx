@@ -1,9 +1,8 @@
 import { useLayoutEffect, useState } from "react";
-import { Element, ElementType, SelectedElement } from "../models/Element";
+import { Element, ElementFactory, SelectedElement } from "../models/Element";
 import useDrawing from "../context/DrawingContext";
-import { elementTypeToTool, getElementOnPosition, cursorForPosition, resizedCoordinates, getMouseCoordinates } from "../utils/utils";
+import { getElementOnPosition, cursorForPosition, getMouseCoordinates, toolToElementType, getElementOnPositionNotOverwrite } from "../utils/utils";
 import rough from "roughjs";
-import { Drawable } from "roughjs/bin/core";
 import { Action, Tool } from "../models/Action";
 
 const generator = rough.generator();
@@ -23,76 +22,12 @@ const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: 
         ctx.save();
         ctx.translate(panOffset.x, panOffset.y);
 
-        elements.forEach(({ roughElement }) => {
-            rc.draw(roughElement);
+        elements.forEach( element => {
+            element.drawElement(rc);
         });
+        
         ctx.restore();
     }, [elements, drawingContext.action, selectedElement, panOffset]);
-
-    function createElement(id: number, x1: number, y1: number, x2: number, y2: number, tool: Tool, color: string): Element {
-        let roughElement: Drawable;
-        let type: ElementType = ElementType.Line;
-
-        switch (tool) {
-            case Tool.Rectangle:
-                roughElement = generator.rectangle(x1, y1, x2 - x1, y2 - y1, {
-                    fill: color,
-                    fillStyle: "zigzag"
-                });
-                type = ElementType.Rectangle;
-                break;
-            case Tool.Line:
-                roughElement = generator.line(x1, y1, x2, y2, {
-                    stroke: color,
-                    strokeLineDash: [5, 5]
-                });
-                type = ElementType.Line;
-                break;
-            case Tool.Selection:
-            default:
-                throw new Error("Invalid tool");
-        }
-        return {
-            id,
-            x1,
-            y1,
-            x2,
-            y2,
-            type,
-            color,
-            roughElement,
-            position: null
-        };
-    }
-
-    const updateElement = (id: number, x1: number, y1: number, x2: number, y2: number) => {
-
-        const updatedElement = createElement(id, x1, y1, x2, y2, elementTypeToTool(elements[id].type), elements[id].color);
-        console.log(id, elements[id].color);
-        const elementsCopy = [...elements];
-        elementsCopy[id] = updatedElement;
-        setElements(elementsCopy, true);
-    }
-
-    const adjustElementsCoordinates = (element: Element) => {
-        const { x1, y1, x2, y2 } = element;
-        switch (element.type) {
-            case ElementType.Line:
-                if (x1 < x2 || (x1 === x2 && y1 < y2)) {
-                    return { x1, y1, x2, y2 };
-                } else {
-                    return { x1: x2, y1: y2, x2: x1, y2: y1 };
-                }
-            case ElementType.Rectangle:
-                const minX = Math.min(x1, x2);
-                const minY = Math.min(y1, y2);
-                const maxX = Math.max(x1, x2);
-                const maxY = Math.max(y1, y2);
-                return { x1: minX, y1: minY, x2: maxX, y2: maxY };
-            default:
-                return { x1, y1, x2, y2 };
-        }
-    }
 
     const handleMouseDown = (event: React.MouseEvent) => {
         const { clientX, clientY } = getMouseCoordinates(event, panOffset);
@@ -103,12 +38,14 @@ const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: 
             return;
         }
 
-
         if (drawingContext.tool === Tool.Selection) {
             const element = getElementOnPosition(clientX, clientY, elements);
             if (element) {
-                const offsetX = clientX - element.x1;
-                const offsetY = clientY - element.y1;
+                let coord = element.getMouseRefCoordinates();
+
+                const offsetX = clientX - coord.x;
+                const offsetY = clientY - coord.y;
+
                 setSelectedElement({ ...element, offsetX, offsetY });
                 setElements((prevState: any) => prevState);
 
@@ -117,10 +54,11 @@ const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: 
                 } else {
                     drawingContext.setAction(Action.Resize);
                 }
+                console.log(drawingContext.action)
             }
         } else {
             const id = elements.length;
-            const element = createElement(id, clientX, clientY, clientX, clientY, drawingContext.tool, drawingContext.color);
+            let element = ElementFactory.createElement(toolToElementType(drawingContext.tool), {id: id, x1: clientX, y1: clientY, x2: clientX, y2: clientY, color: drawingContext.color}, generator);
             setElements((prevState: any) => [...prevState, element]);
             setSelectedElement({ ...element, offsetX: 0, offsetY: 0 });
 
@@ -143,7 +81,7 @@ const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: 
 
         if (drawingContext.tool === Tool.Selection) {
             //ezt a draw & action cuccot refactorálni kell
-            const element = getElementOnPosition(clientX, clientY, elements);
+            const element = getElementOnPositionNotOverwrite(clientX, clientY, elements);
             (event.target as HTMLElement).style.cursor = element
                 ? cursorForPosition(element.position)
                 : "default";
@@ -151,22 +89,27 @@ const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: 
 
         if (drawingContext.action === Action.Draw) {
             const index = elements.length - 1;
+            //updateElement(index, elements[index].x1, elements[index].y1, clientX, clientY);
+            //updateElement(index, clientX, clientY);
+            let updatedElement = elements[index].updateElement(clientX, clientY, generator); //ez kelll?? nem updateli magát?
 
-            updateElement(index, elements[index].x1, elements[index].y1, clientX, clientY);
+            const elementsCopy = [...elements];
+            elementsCopy[index] = updatedElement;
+            setElements(elementsCopy, true);
         }
         if (drawingContext.action === Action.Move) {
-            const { id, x1, y1, x2, y2, offsetX, offsetY } = selectedElement!;
-            const width = x2 - x1;
-            const height = y2 - y1;
-            const nextX = clientX - offsetX;
-            const nextY = clientY - offsetY
+            const { id, offsetX, offsetY } = selectedElement!;
 
-            updateElement(id, nextX, nextY, nextX + width, nextY + height);
+            let updatedElement = elements[id].moveElement(offsetX, offsetY, clientX, clientY, generator);
+            const elementsCopy = [...elements];
+            elementsCopy[id] = updatedElement;
+            setElements(elementsCopy, true);
         }
         if (drawingContext.action === Action.Resize) {
-            //const { id, type, position, ...coordinates } = selectedElement!;
-            const { x1, y1, x2, y2 } = resizedCoordinates(clientX, clientY, selectedElement!);
-            updateElement(selectedElement!.id, x1, y1, x2, y2);
+            let updatedElement = elements[selectedElement!.id].resizeElement(clientX, clientY, generator);
+            const elementsCopy = [...elements];
+            elementsCopy[selectedElement!.id] = updatedElement;
+            setElements(elementsCopy, true);
         }
     };
 
@@ -178,8 +121,11 @@ const Canvas = ({ elements, setElements, panOffset, setPanOffset }: { elements: 
         const index = selectedElement!.id;
         const id = elements[index].id;
         if (drawingContext.action === Action.Draw || drawingContext.action === Action.Resize) {
-            const { x1, y1, x2, y2 } = adjustElementsCoordinates(elements[id]);
-            updateElement(id, x1, y1, x2, y2);
+
+            let updatedElement = elements[id].adjustElementCoordinates(generator);
+            const elementsCopy = [...elements];
+            elementsCopy[id] = updatedElement;
+            setElements(elementsCopy, true);
         }
 
         (event.target as HTMLElement).style.cursor = "default";

@@ -16,6 +16,18 @@ export const elementTypeToTool = (type: ElementType) => {
     }
 }
 
+export const toolToElementType = (tool: Tool) => {
+    switch (tool) {
+        case Tool.Line:
+            return ElementType.Line;
+        case Tool.Rectangle:
+            return ElementType.Rectangle;
+        default:
+            throw new Error("Invalid tool");
+    }
+}
+
+/*
 function positionWithinElement(x: number, y: number, element: Element) {
     const { x1, y1, x2, y2 } = element;
     switch (element.type) {
@@ -38,15 +50,24 @@ function positionWithinElement(x: number, y: number, element: Element) {
         default:
             return null;
     }
-}
+}*/
 
-function nearPoint(mx: number, my: number, px: number, py: number, position: string) {
+export function nearPoint(mx: number, my: number, px: number, py: number, position: string) {
     return Math.abs(mx - px) < 5 && Math.abs(my - py) < 5 ? position : null;
 }
 
 export function getElementOnPosition(x: number, y: number, elements: Element[]) {
     return elements
-    .map(element => ({ ...element, position: positionWithinElement(x, y, element) }))
+    .map(element => {
+        element.position = element.positionWithinElement(x, y);
+        return element;
+    })
+    .find(element => element.position !== null);
+}
+
+export function getElementOnPositionNotOverwrite(x: number, y: number, elements: Element[]) {
+    return elements
+    .map(element => ({ ...element, position: element.positionWithinElement(x, y) }))
     .find(element => element.position !== null);
 }
 
@@ -64,7 +85,8 @@ export function cursorForPosition(position: string | null) {
             return "move";
     }
 } 
-
+//ez is belső logika kell legyen
+/*
 export function resizedCoordinates(clientX: number, clientY: number, element: Element ){
     switch(element.position) {
         case "tl":
@@ -82,7 +104,7 @@ export function resizedCoordinates(clientX: number, clientY: number, element: El
         default:
             return { x1: element.x1, y1: element.y1, x2: element.x2, y2: element.y2 }; //or null
     }
-}
+}*/
 
 export function getMouseCoordinates(event: React.MouseEvent, panOffset: { x: number, y: number }) {
     return { clientX: event.clientX - panOffset.x, clientY: event.clientY - panOffset.y };
